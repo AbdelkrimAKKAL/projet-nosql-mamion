@@ -1,0 +1,6 @@
+pymongo
+neo4j
+pandas
+matplotlib
+networkx
+tabulate

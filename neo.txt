@@ -1,0 +1,80 @@
+
+// ANALYSE DES VENTES =========================================
+
+
+// 1. Quelles sont les 10 catégories avec le plus de produit ?
+MATCH (p:Produit)-[:IN_CAT]->(c:Categorie)
+RETURN c.name AS Categorie, count(p) AS nb_produits
+ORDER BY nb_produits DESC
+LIMIT 10;
+
+// 2. Quelles sont les 10 rayons avec le plus de catégories ?
+MATCH (c:Categorie)-[:IN_RAYON]->(r:Rayon)
+RETURN r.name AS Rayon, count(c) AS nb_categories
+ORDER BY nb_categories DESC
+LIMIT 10;
+
+// 3. Quelles sont les 10 rayons avec le plus de produits ?
+MATCH (p:Produit)-[:IN_CAT]->(c:Categorie)-[:IN_RAYON]->(r:Rayon)
+RETURN r.name AS Rayon, count(p) AS nb_produits
+ORDER BY nb_produits DESC
+LIMIT 10;
+
+// 4. Quels sont les produits souvent achetés ensemble ?
+MATCH (p1:Produit)<-[:CONTAINS]-(t:Ticket)-[:CONTAINS]->(p2:Produit)
+WHERE id(p1) < id(p2) // Évite les doublons de paires (A-B et B-A)
+RETURN p1.label AS Produit1, p2.label AS Produit2, count(t) AS nb_fois_ensemble
+ORDER BY nb_fois_ensemble DESC
+LIMIT 5;
+
+// 5. Quelles sont les catégories avec le plus de ligne de vente ?
+MATCH (t:Ticket)-[c:CONTAINS]->(p:Produit)-[:IN_CAT]->(cat:Categorie)
+RETURN cat.name AS Categorie, count(c) AS lignes_vente
+ORDER BY lignes_vente DESC
+LIMIT 10;
+
+// 6. Quelles sont les catégories avec le plus de quantité vendue ?
+MATCH (t:Ticket)-[c:CONTAINS]->(p:Produit)-[:IN_CAT]->(cat:Categorie)
+RETURN cat.name AS Categorie, sum(c.qte) AS quantite_vendue
+ORDER BY quantite_vendue DESC
+LIMIT 10;
+
+
+// ANALYSE DU PARRAINAGE =========================================
+
+// 1. Quelle personne a parrainé le plus de personnes ? Qui a été parrainé par cette personne ?
+// A. Trouver le Top Parrain
+MATCH (p:Usr)-[:SPONSOR]->(f:Usr)
+RETURN p.id AS ID_Parrain, p.prenom AS Prenom, p.nom AS Nom, count(f) AS nb_filleuls
+ORDER BY nb_filleuls DESC
+LIMIT 1;
+
+// B. Trouver les filleuls de ce Parrain (remplacer '33' par l'ID trouvé)
+MATCH (p:Usr {id: '33'})-[:SPONSOR]->(f:Usr)
+RETURN f.id AS ID_Filleul, f.prenom AS Prenom, f.nom AS Nom;
+
+// 6. Quelle est la chaîne de parrainage la plus longue (A parraine B qui parraine C, etc...) ?
+MATCH path = (start:Usr)-[:SPONSOR*]->(end:Usr)
+RETURN length(path) AS longueur, [n IN nodes(path) | n.id] AS chaine_ids
+ORDER BY longueur DESC
+LIMIT 1;
+
+// 7. Quelle entreprise a le plus d'employés qui ont la carte de fidélité ?
+MATCH (u:Usr)-[:WORKS_AT]->(e:Entreprise)
+RETURN e.name AS Entreprise, e.siret AS SIRET, count(u) AS nb_employes
+ORDER BY nb_employes DESC
+LIMIT 1;
+
+// 8. Quels domaines d'activité concentrent le plus d'entreprises ?
+MATCH (e:Entreprise)-[:IN_DOMAIN]->(d:Domain)
+RETURN d.label AS Domaine, count(e) AS nb_entreprises
+ORDER BY nb_entreprises DESC
+LIMIT 10;
+
+// 9. Quelles sont les 10 entreprises qui génèrent le plus de parrains?
+MATCH (p:Usr)-[:SPONSOR]->()
+WITH DISTINCT p // On s'assure d'avoir les parrains uniques
+MATCH (p)-[:WORKS_AT]->(e:Entreprise)
+RETURN e.name AS Entreprise, e.siret AS SIRET, count(p) AS nb_parrains
+ORDER BY nb_parrains DESC
+LIMIT 10;

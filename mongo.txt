@@ -1,0 +1,207 @@
+
+// Utilisation de la base
+use mamionmiam;
+
+// ANALYSE DES VENTES ==========================================
+
+// 1. Quelles sont les 10 catégories avec le plus de produit ?
+db.produits.aggregate([
+  { $group: { _id: "$Categorie", nb_produits: { $sum: 1 } } },
+  { $sort: { nb_produits: -1 } },
+  { $limit: 10 }
+]);
+
+// 2. Quelles sont les 10 rayons avec le plus de catégories ?
+db.produits.aggregate([
+  { $group: { _id: { rayon: "$Rayon", categorie: "$Categorie" } } },
+  { $group: { _id: "$_id.rayon", nb_categories: { $sum: 1 } } },
+  { $sort: { nb_categories: -1 } },
+  { $limit: 10 }
+]);
+
+// 3. Quelles sont les 10 rayons avec le plus de produits ?
+db.produits.aggregate([
+  { $group: { _id: "$Rayon", nb_produits: { $sum: 1 } } },
+  { $sort: { nb_produits: -1 } },
+  { $limit: 10 }
+]);
+
+// 4. Quels sont les produits souvent achetés ensemble ?
+// Note : Le calcul de combinaisons de produits est complexe en pur MongoDB (besoin de faire un auto-join sur les arrays de produits par ticket).
+// Il est généralement recommandé de le faire côté applicatif (Python) ou avec un graphe (Neo4J).
+
+// 5. Quelles sont les catégories avec le plus de ligne de vente ?
+db.achats.aggregate([
+  { $unwind: "$detail" },
+  { $lookup: {
+      from: "produits",
+      localField: "detail.SKU",
+      foreignField: "SKU",
+      as: "produit_info"
+  }},
+  { $unwind: "$produit_info" },
+  { $group: { _id: "$produit_info.Categorie", lignes_de_vente: { $sum: 1 } } },
+  { $sort: { lignes_de_vente: -1 } },
+  { $limit: 10 }
+]);
+
+// 6. Quelles sont les catégories avec le plus de quantité vendue ?
+db.achats.aggregate([
+  { $unwind: "$detail" },
+  { $lookup: {
+      from: "produits",
+      localField: "detail.SKU",
+      foreignField: "SKU",
+      as: "produit_info"
+  }},
+  { $unwind: "$produit_info" },
+  { $group: { _id: "$produit_info.Categorie", qte_vendue: { $sum: "$detail.qte" } } },
+  { $sort: { qte_vendue: -1 } },
+  { $limit: 10 }
+]);
+
+// 7. Nombre d'achat et dépense totale par genre (H/F) ?
+db.achats.aggregate([
+  { $lookup: {
+      from: "clients",
+      localField: "acheteur",
+      foreignField: "id",
+      as: "client_info"
+  }},
+  { $unwind: "$client_info" },
+  { $group: { 
+      _id: "$client_info.genre", 
+      nombre_achats: { $sum: 1 }, 
+      depense_totale: { $sum: "$total" } 
+  }}
+]);
+
+// 8. Nombre d'achat et dépense totale par genre et par rayon ?
+db.achats.aggregate([
+  { $unwind: "$detail" },
+  { $lookup: {
+      from: "clients",
+      localField: "acheteur",
+      foreignField: "id",
+      as: "client_info"
+  }},
+  { $unwind: "$client_info" },
+  { $lookup: {
+      from: "produits",
+      localField: "detail.SKU",
+      foreignField: "SKU",
+      as: "produit_info"
+  }},
+  { $unwind: "$produit_info" },
+  { $group: { 
+      _id: { genre: "$client_info.genre", rayon: "$produit_info.Rayon", ticket: "$ticket" },
+      total_line: { $sum: "$detail.total" } 
+  }},
+  { $group: { 
+      _id: { genre: "$_id.genre", rayon: "$_id.rayon" },
+      nombre_achats: { $sum: 1 },
+      depense_totale: { $sum: "$total_line" }
+  }},
+  { $sort: { depense_totale: -1 } },
+  { $limit: 10 }
+]);
+
+// 9. Nombre d'achat et dépense totale par commune ?
+db.achats.aggregate([
+  { $lookup: {
+      from: "clients",
+      localField: "acheteur",
+      foreignField: "id",
+      as: "client_info"
+  }},
+  { $unwind: "$client_info" },
+  { $group: { 
+      _id: "$client_info.commune", 
+      nombre_achats: { $sum: 1 }, 
+      depense_totale: { $sum: "$total" } 
+  }},
+  { $sort: { depense_totale: -1 } },
+  { $limit: 10 }
+]);
+
+// 10. Dépense totale par commune et par genre ?
+db.achats.aggregate([
+  { $lookup: {
+      from: "clients",
+      localField: "acheteur",
+      foreignField: "id",
+      as: "client_info"
+  }},
+  { $unwind: "$client_info" },
+  { $group: { 
+      _id: { commune: "$client_info.commune", genre: "$client_info.genre" }, 
+      depense_totale: { $sum: "$total" } 
+  }},
+  { $sort: { "_id.commune": 1 } }
+]);
+
+
+// ANALYSE DU PARRAINAGE =========================================
+
+// 1. Quelle personne a parrainé le plus de personnes ? Qui a été parrainé par cette personne ?
+// A. Top Parrain
+db.parrainages.aggregate([
+  { $group: { _id: "$idParrain", nb_filleuls: { $sum: 1 } } },
+  { $sort: { nb_filleuls: -1 } },
+  { $limit: 1 },
+  { $lookup: { from: "clients", localField: "_id", foreignField: "id", as: "parrain_info" } },
+  { $project: { "parrain_info.prenom": 1, "parrain_info.nom": 1, nb_filleuls: 1 } }
+]);
+// B. Filleuls du Top Parrain (ID = 33)
+db.parrainages.aggregate([
+  { $match: { idParrain: 33 } },
+  { $lookup: { from: "clients", localField: "idFilleul", foreignField: "id", as: "filleul_info" } },
+  { $unwind: "$filleul_info" },
+  { $project: { _id: 0, "filleul_info.id": 1, "filleul_info.prenom": 1, "filleul_info.nom": 1 } }
+]);
+
+// 2. Combien de H/F ont parrainé quelqu'un ?
+db.parrainages.aggregate([
+  { $group: { _id: "$idParrain" } },
+  { $lookup: { from: "clients", localField: "_id", foreignField: "id", as: "client_info" } },
+  { $unwind: "$client_info" },
+  { $group: { _id: "$client_info.genre", nombre: { $sum: 1 } } }
+]);
+
+// 2. (Suite) Combien de H/F ont été parrainés par quelqu'un ?
+db.parrainages.aggregate([
+  { $group: { _id: "$idFilleul" } },
+  { $lookup: { from: "clients", localField: "_id", foreignField: "id", as: "client_info" } },
+  { $unwind: "$client_info" },
+  { $group: { _id: "$client_info.genre", nombre: { $sum: 1 } } }
+]);
+
+// 7. Quelle entreprise a le plus d'employés qui ont la carte de fidélité ?
+db.clients.aggregate([
+  { $match: { "entreprise.siret": { $exists: true } } },
+  { $group: { _id: "$entreprise.siret", nb_employes: { $sum: 1 } } },
+  { $sort: { nb_employes: -1 } },
+  { $limit: 1 },
+  { $lookup: { from: "entreprises", localField: "_id", foreignField: "siret", as: "entreprise_info" } },
+  { $project: { "entreprise_info.nom": 1, nb_employes: 1 } }
+]);
+
+// 8. Quels domaines d'activité concentrent le plus d'entreprises ?
+db.entreprises.aggregate([
+  { $group: { _id: "$domain_label", nb_entreprises: { $sum: 1 } } },
+  { $sort: { nb_entreprises: -1 } },
+  { $limit: 10 }
+]);
+
+// 9. Quelles sont les 10 entreprises qui génèrent le plus de parrains?
+db.parrainages.aggregate([
+  { $group: { _id: "$idParrain" } }, // get unique parrains
+  { $lookup: { from: "clients", localField: "_id", foreignField: "id", as: "client_info" } },
+  { $unwind: "$client_info" },
+  { $match: { "client_info.entreprise.siret": { $exists: true } } },
+  { $group: { _id: "$client_info.entreprise.siret", nb_parrains: { $sum: 1 } } },
+  { $sort: { nb_parrains: -1 } },
+  { $limit: 10 },
+  { $lookup: { from: "entreprises", localField: "_id", foreignField: "siret", as: "entreprise_info" } },
+  { $project: { "entreprise_info.nom": 1, nb_parrains: 1 } }
+]);
